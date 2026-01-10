@@ -13,12 +13,15 @@ Usage:
 
 
 """
+import argparse
 import csv
 import random
+import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 S3_BUCKET = 's3://pmc-oa-opendata'
 
@@ -48,7 +51,7 @@ def read_filelist_csv(path : Path) -> List[FileRow]:
 
         if not key_col or not accession_id_col or not license_col in fieldnames:
             raise ValueError(
-                f'CSV missing one or more of required fields (Key, AccessionId, License). Found: {reader.fieldnames}'
+                f'CSV missing one or more of required fields (Key, AccessionID, License). Found: {reader.fieldnames}'
             )
 
         for row in reader:
@@ -88,8 +91,88 @@ def download_one(key : str, dest : Path) -> bool:
     Download one S3 object using AWS CLI (public bucket, no-sign-request)
     Returns True on success, False on fail
     """
-    ensure_dir_exists(dest)
     s3_uri = f's3://{S3_BUCKET}/{key}'
     cmd = ['aws', 's3', 'cp', s3_uri, str(dest), '--no-sign-request']
     return run_cmd(cmd) == 0
 
+def local_path_for_key(out_dir : Path, key : str) -> Path:
+    """Store as  out_dir/<key> persevering directory structure e.g. out_dir/oa_comm/xml/all/PMC12345.xml"""
+    return out_dir / key
+
+
+
+def write_reproducible_output(out_path : Path, rows : List[FileRow]) -> None:
+    """Make file that holds the same rows as the sample data. Used for reproducibility"""
+    with out_path.open('w', encoding='utf-8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows(['key', 'accession_id', 'license'])
+        for r in rows:
+            writer.writerow([r.key, r.accession_id, r.license])
+
+def make_reproducible_output_path(out_dir : Path) -> Path:
+    """Make path where the reproducible output is stored."""
+    return out_dir/'reproducible_output.csv'
+
+
+def count_xml_files(out_dir : Path) -> int:
+    return sum(1 for _ in out_dir.rglob('*.xml'))
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--filelist', required=True, type=Path, help="Path to oa_comm.filelist.csv")
+    ap.add_argument('--out_dir', required=True, type=Path, help="Path to output directory")
+    ap.add_argument('--n', type=int, default=10, help="Number of papers to download")
+    ap.add_argument('--seed', type=int, default = 42, help="Random seed")
+    args = ap.parse_args()
+
+    if shutil.which('aws') is None:
+        print("Error: AWS CLI is not installed. Install the AWS CLI first", file = sys.stderr)
+
+    ensure_dir_exists(args.out_dir)
+
+    print(f'Reading filelist: {args.filelist}...')
+    rows = read_filelist_csv(args.filelist)
+    print(f'Total number of rows: {len(rows)}')
+
+    print(f'Sampling N: {args.n}, with seed={args.seed}...')
+    sample = get_random_sample(rows, args.n, args.seed)
+
+    print('Saving the sample data...')
+    reproducible_output_path = make_reproducible_output_path(args.out_dir)
+    write_reproducible_output(reproducible_output_path, sample)
+    print(f'Sample data saved to {reproducible_output_path}')
+
+    print('Start downloading...')
+    failures : List[Tuple[str, str]] = []
+    for i, r in enumerate(sample, start=1):
+        dest = local_path_for_key(args.out_dir, r.key)
+        download_ok = download_one(r.key, dest)
+
+        if not download_ok:
+            failures.append((r.key, r.accession_id))
+
+        if i % 100 == 0:
+            print(f'Progress: {i}/{len(sample)} | Downloaded ok: {i - len(failures)} | Failed: {len(failures)}')
+
+    print(f'Download finished. Failed count: {len(failures)}')
+
+    print('Writing failures into a separate file...')
+    if failures:
+        failures_path = args.out_dir/'failed_downloads.csv'
+        with failures_path.open('w', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Key', 'Destination'])
+            for k, d in failures:
+                writer.writerow([k, d])
+        print(f'Wrote failures file to: {failures_path}')
+
+    xml_count = count_xml_files(args.out_dir)
+    print(f'Successfully downloaded: {xml_count} XML files')
+    if xml_count < args.n:
+        print(f'WARNING: Downloaded less XML files than requested. Check failed_downloads.csv')
+
+    return 0
+
+if __name__ == '__main__':
+    raise SystemExit(main())
