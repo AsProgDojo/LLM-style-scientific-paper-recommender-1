@@ -8,10 +8,6 @@ Samples N keys deterministically
 Writes manifest CSV for reproducibility
 Downloads files with retries and verifies the final count
 
-Usage:
-
-
-
 """
 import argparse
 import csv
@@ -45,14 +41,17 @@ def read_filelist_csv(path : Path) -> List[FileRow]:
             raise ValueError('CSV has no header/fieldnames')
 
         fieldnames = {name.lower() : name for name in reader.fieldnames}
-        key_col = fieldnames['key']
-        accession_id_col = fieldnames['accessionid']
-        license_col = fieldnames['license']
+        required = ['key', 'accessionid', 'license']
+        missing = [r for r in required if r not in fieldnames]
 
-        if not key_col or not accession_id_col or not license_col in fieldnames:
+        if missing:
             raise ValueError(
                 f'CSV missing one or more of required fields (Key, AccessionID, License). Found: {reader.fieldnames}'
             )
+
+        key_col = fieldnames['key']
+        accession_id_col = fieldnames['accessionid']
+        license_col = fieldnames['license']
 
         for row in reader:
             key = row.get(key_col, "").strip()
@@ -91,15 +90,13 @@ def download_one(key : str, dest : Path) -> bool:
     Download one S3 object using AWS CLI (public bucket, no-sign-request)
     Returns True on success, False on fail
     """
-    s3_uri = f's3://{S3_BUCKET}/{key}'
+    s3_uri = f'{S3_BUCKET}/{key}'
     cmd = ['aws', 's3', 'cp', s3_uri, str(dest), '--no-sign-request']
     return run_cmd(cmd) == 0
 
 def local_path_for_key(out_dir : Path, key : str) -> Path:
     """Store as  out_dir/<key> persevering directory structure e.g. out_dir/oa_comm/xml/all/PMC12345.xml"""
     return out_dir / key
-
-
 
 def write_reproducible_output(out_path : Path, rows : List[FileRow]) -> None:
     """Make file that holds the same rows as the sample data. Used for reproducibility"""
@@ -157,8 +154,8 @@ def main() -> int:
 
     print(f'Download finished. Failed count: {len(failures)}')
 
-    print('Writing failures into a separate file...')
     if failures:
+        print('Writing failures into a separate file...')
         failures_path = args.out_dir/'failed_downloads.csv'
         with failures_path.open('w', encoding='utf-8', newline='') as f:
             writer = csv.writer(f)
