@@ -1,12 +1,13 @@
-from pathlib import Path
 from typing import List
-
 import jsonlines
 import numpy as np
-import torch
-from numpy import ndarray
+import os
 from sentence_transformers import SentenceTransformer
 from transformers import AutoTokenizer
+import psycopg
+from pgvector.psycopg import register_vector
+from dotenv import load_dotenv, find_dotenv
+
 
 MODEL_NAME = 'pritamdeka/S-PubMedBert-MS-MARCO'
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -14,6 +15,9 @@ model = SentenceTransformer(MODEL_NAME)
 
 
 def get_chunk_embedding(text_chunks : List[str]) -> np.ndarray:
+    """
+    Return chunk embedding/s of passed text chunk/s
+    """
     embeddings = model.encode(text_chunks, convert_to_tensor=False)
     return embeddings
 
@@ -54,14 +58,76 @@ def get_chunks(section_text : str, header : str, window_wp : int = 348, overlap_
 
     return chunks
 
+def insert_data(paper_id : str, bucket : str, section_index : int, chunk_index : int, path_string : str, title : str, chunk_text : str, embedding : np.ndarray) -> None:
+    print(os.getenv('DB_PASSWORD'))
+    print(os.getenv('DB_HOST'))
+    db_config = {
+        'dbname' : os.getenv("DB_NAME"),
+        'user' : os.getenv("DB_USER"),
+        'password' : os.getenv("DB_PASSWORD"),
+        'host' : os.getenv("DB_HOST"),
+        'port' : os.getenv("DB_PORT"),
+    }
+
+    try:
+        with psycopg.connect(**db_config, options="-c search_path=paper_chunks,public") as conn:
+            print("Connected to PostgreSQL database")
+
+            register_vector(conn)
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO paper_chunks
+                        (paper_id, bucket, section_index, chunk_index, path_string, title, chunk_text, embedding)
+                    VALUES 
+                        (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (paper_id, section_index, chunk_index)
+                    DO UPDATE SET
+                            bucket      = EXCLUDED.bucket,
+                            path_string = EXCLUDED.path_string,
+                            title       = EXCLUDED.title,
+                            chunk_text  = EXCLUDED.chunk_text,
+                            embedding   = EXCLUDED.embedding
+                    """,
+                    (paper_id, bucket, section_index, chunk_index, path_string, title, chunk_text, embedding)
+                )
+        print("Inserted a row!")
+    except Exception as e:
+        print(f"Error connecting to the database: {e}")
 
 def process_jsonl_file(object_file : str):
     with jsonlines.open(object_file) as reader:
         for json_object in reader:
+            paper_id = json_object['paper_id']
+            title = json_object['title']
+
+            # Inserting data for abstract
             abstract = json_object["abstract"]
+            bucket = 'abstract'
+            section_index = -1
             text_chunks = get_chunks(abstract, json_object["title"])
-            chunk_embedding = get_chunk_embedding(text_chunks)
-            print(chunk_embedding)
+            for i, text_chunk in enumerate(text_chunks):
+                embedding = get_chunk_embedding(text_chunk)
+                chunk_index = i
+                insert_data(paper_id, bucket, section_index, chunk_index, '', title, text_chunk, embedding)
+                print("Paper ID:", paper_id, "Section Index: ", section_index,"-- Chunk index", chunk_index)
+
+            # Inserting data for sections
+            sections = json_object["sections"]
+            for section in sections:
+                section_index = section["section_index"]
+                path_string = section["path_string"]
+                title = section["title"]
+                bucket = section["bucket"]
+                section_text = section["text"]
+                text_chunks = get_chunks(section_text, path_string)
+                for i, chunk_text in enumerate(text_chunks):
+                    embedding = get_chunk_embedding(chunk_text)
+                    chunk_index = i
+                    insert_data(paper_id, bucket, section_index, chunk_index, path_string, title, chunk_text, embedding)
+                    print("Paper ID:", paper_id, "Section Index: ", section_index, "-- Chunk index", chunk_index)
+
 
 if __name__ == '__main__':
+    load_dotenv(find_dotenv())
     process_jsonl_file('./output/oa_comm/txt/all/corpus.jsonl')
