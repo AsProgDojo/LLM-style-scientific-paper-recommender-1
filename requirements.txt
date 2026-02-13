@@ -1,0 +1,7 @@
+sentence-transformers~=5.2.2
+jsonlines~=4.00
+transformers~=4.57.6
+numpy~=2.4.1
+python-dotenv~=1.2.1
+pgvector~=0.4.2
+psycopg~=3.3.2
