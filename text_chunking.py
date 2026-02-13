@@ -59,6 +59,10 @@ def get_chunks(section_text : str, header : str, window_wp : int = 348, overlap_
     return chunks
 
 def insert_data(paper_id : str, bucket : str, section_index : int, chunk_index : int, path_string : str, title : str, chunk_text : str, embedding : np.ndarray) -> None:
+    """
+    Insert text chunk into PostgreSQL database
+    """
+
     print(os.getenv('DB_PASSWORD'))
     print(os.getenv('DB_HOST'))
     db_config = {
@@ -73,7 +77,7 @@ def insert_data(paper_id : str, bucket : str, section_index : int, chunk_index :
         with psycopg.connect(**db_config, options="-c search_path=paper_chunks,public") as conn:
             print("Connected to PostgreSQL database")
 
-            register_vector(conn)
+            register_vector(conn) # enables the use of the PostgreSQL vector data type within the Python database connection
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
@@ -96,6 +100,9 @@ def insert_data(paper_id : str, bucket : str, section_index : int, chunk_index :
         print(f"Error connecting to the database: {e}")
 
 def process_jsonl_file(object_file : str):
+    """
+    Process all the JSON objects inside object_file which represents JSONL
+    """
     with jsonlines.open(object_file) as reader:
         for json_object in reader:
             paper_id = json_object['paper_id']
