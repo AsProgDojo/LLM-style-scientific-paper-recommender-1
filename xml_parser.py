@@ -1,10 +1,3 @@
-# pmc_jats_parser.py
-# Parse PMC "Full text (JATS)" XML into a JSON record with:
-# - metadata (ids/title/journal/date/authors/keywords)
-# - abstract text
-# - section list (path/title/bucket/text) for traceability
-# - bucket aggregates (introduction/methods/results/discussion/conclusion)
-
 from __future__ import annotations
 
 import argparse
