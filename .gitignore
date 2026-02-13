@@ -1,2 +1,4 @@
-pmc_metadata/oa_comm.filelist.csv
-output/reproducible_output.csv
+./pmc_metadata/oa_comm.filelist.csv
+./output/reproducible_output.csv
+./.env
+./output/oa_comm/txt/all/corpus.jsonl
