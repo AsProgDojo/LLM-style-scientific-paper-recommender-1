@@ -1,12 +1,12 @@
+from sentence_transformers import SentenceTransformer
 from typing import List
+from transformers import AutoTokenizer
+from pgvector.psycopg import register_vector
+from dotenv import load_dotenv, find_dotenv
+import psycopg
 import jsonlines
 import numpy as np
 import os
-from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer
-import psycopg
-from pgvector.psycopg import register_vector
-from dotenv import load_dotenv, find_dotenv
 
 
 MODEL_NAME = 'pritamdeka/S-PubMedBert-MS-MARCO'
