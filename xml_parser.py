@@ -36,6 +36,75 @@ ADMIN_SECTION_TITLE_SUBSTRINGS = [
 
 BUCKET_NAMES = ("introduction", "methods", "results", "discussion", "conclusion")
 
+# Order matters when multiple bucket words appear in a title
+BUCKET_PRIORITY_ORDER = ("methods", "results", "discussion", "conclusion", "introduction")
+
+# Strong signals: allowed to override parent bucket
+STRONG_BUCKET_PATTERNS: Dict[str, List[re.Pattern]] = {
+    "introduction": [
+        re.compile(r"\bintroduction\b"),
+        re.compile(r"\bbackground\b"),
+        re.compile(r"\brelated work\b"),
+        re.compile(r"\bliterature review\b"),
+    ],
+    "methods": [
+        re.compile(r"\bmaterials?\s+and\s+methods?\b"),
+        re.compile(r"\bmethods?\b"),
+        re.compile(r"\bmethodology\b"),
+        re.compile(r"\bexperimental procedures\b"),
+        re.compile(r"\bstudy design\b"),
+        re.compile(r"\bpatients?\s+and\s+methods?\b"),
+    ],
+    "results": [
+        re.compile(r"\bresults?\b"),
+        re.compile(r"\bfindings?\b"),
+        re.compile(r"\boutcomes?\b"),
+    ],
+    "discussion": [
+        re.compile(r"\bdiscussion\b"),
+        re.compile(r"\binterpretation\b"),
+    ],
+    "conclusion": [
+        re.compile(r"\bconclusions?\b"),
+        re.compile(r"\bconcluding\b"),
+        re.compile(r"\bfinal remarks\b"),
+        re.compile(r"\bsummary\b"),
+    ],
+}
+
+# Weak signals: DO NOT override parent bucket (only used when parent bucket is None)
+WEAK_BUCKET_PATTERNS: Dict[str, List[re.Pattern]] = {
+    "methods": [
+        re.compile(r"\bdata analysis\b"),
+        re.compile(r"\bstatistical analysis\b"),
+        re.compile(r"\bmeasures?\b"),
+        re.compile(r"\bquestionnaire\b"),
+        re.compile(r"\bsurvey\b"),
+        re.compile(r"\bendpoints?\b"),
+        re.compile(r"\bvariables?\b"),
+    ],
+}
+
+LEADING_LABEL_RE = re.compile(
+    r"^\s*(?:section|chapter)?\s*"
+    r"(?:\(?\s*(?:\d+|[ivxlcdm]+|[a-z])\s*\)?\s*[\.\)\-:]\s*)+",
+    re.IGNORECASE,
+)
+
+def resolve_combined_heading_bucket(normalized_title: str) -> Optional[str]:
+    """
+    Handle headings that contain multiple bucket terms.
+    Decision policy: pick one bucket (no splitting).
+    """
+    if "results" in normalized_title and "discussion" in normalized_title:
+        return "results"
+    if "discussion" in normalized_title and "conclusion" in normalized_title:
+        return "discussion"
+    if "methods" in normalized_title and "results" in normalized_title:
+        return "methods"
+    return None
+
+
 
 # ---------------------------------------------------------------------
 # Text + XML helpers
@@ -60,67 +129,57 @@ def extract_text_content(element: ET.Element) -> str:
 
 
 def normalize_section_title(raw_title: str) -> str:
-    """Lowercase + remove punctuation + normalize spaces."""
-    title_lower = (raw_title or "").lower()
+    """
+    Lowercase + remove punctuation + normalize spaces + strip leading labels like:
+    '1. Introduction', 'I) Methods', 'Section 2: Results', 'A. Discussion'
+    """
+    title_lower = (raw_title or "").lower().strip()
+
+    # Strip leading numbering/labeling
+    title_lower = LEADING_LABEL_RE.sub("", title_lower).strip()
+
+    # Remove punctuation (but keep letters/digits/spaces)
     title_alpha_num = NON_ALNUM_RE.sub(" ", title_lower)
     return normalize_whitespace(title_alpha_num)
 
+def clean_title_for_path(raw_title: str) -> str:
+    if not raw_title:
+        return ""
+    cleaned = LEADING_LABEL_RE.sub("", raw_title).strip()
+    return normalize_whitespace(cleaned)
 
 def is_admin_section_title(normalized_title: str) -> bool:
     return any(substr in normalized_title for substr in ADMIN_SECTION_TITLE_SUBSTRINGS)
 
-def map_section_title_to_bucket(section_title: str) -> Optional[str]:
+def map_section_title_to_bucket(section_title: str) -> Tuple[Optional[str], bool]:
     """
-    Return one of BUCKET_NAMES or None.
-    Returns None for admin titles and unknown titles.
-    """
+    Returns:
+      (bucket_name, override_parent_bucket)
 
+    - override_parent_bucket=True only for strong matches / combined headings.
+    - weak matches return override_parent_bucket=False (so subsections inherit parent by default).
+    """
     normalized_title = normalize_section_title(section_title)
     if not normalized_title or is_admin_section_title(normalized_title):
-        return None
+        return None, False
 
-    # Introduction / background
-    if (
-        normalized_title == "introduction"
-        or normalized_title.startswith("background")
-        or normalized_title in ("related work", "literature review")
-    ):
-        return "introduction"
+    combined_bucket = resolve_combined_heading_bucket(normalized_title)
+    if combined_bucket is not None:
+        return combined_bucket, True
 
-    # Methods (expanded)
-    if (
-        "method" in normalized_title
-        or "materials and methods" in normalized_title
-        or "material and methods" in normalized_title
-        or "methodology" in normalized_title
-        or "experimental procedures" in normalized_title
-        or "study design" in normalized_title
-        or "patients and methods" in normalized_title
-        or "data analysis" in normalized_title
-        or "statistical analysis" in normalized_title
-        or "endpoint" in normalized_title
-        or "endpoints" in normalized_title
-        or "measure" in normalized_title
-        or "measures" in normalized_title
-        or "variables" in normalized_title
-        or "survey" in normalized_title
-        or "questionnaire" in normalized_title
-    ):
-        return "methods"
+    # Strong patterns (can override parent)
+    for bucket_name in BUCKET_PRIORITY_ORDER:
+        for pattern in STRONG_BUCKET_PATTERNS.get(bucket_name, []):
+            if pattern.search(normalized_title):
+                return bucket_name, True
 
-    # Results
-    if normalized_title.startswith("results") or normalized_title in ("findings", "outcome", "outcomes") or "outcomes" in normalized_title:
-        return "results"
+    # Weak patterns (should not override parent)
+    for bucket_name in BUCKET_PRIORITY_ORDER:
+        for pattern in WEAK_BUCKET_PATTERNS.get(bucket_name, []):
+            if pattern.search(normalized_title):
+                return bucket_name, False
 
-    # Discussion
-    if normalized_title.startswith("discussion") or "interpretation" in normalized_title:
-        return "discussion"
-
-    # Conclusion
-    if "conclusion" in normalized_title or normalized_title.startswith("concluding") or normalized_title in ("final remarks", "summary"):
-        return "conclusion"
-
-    return None
+    return None, False
 
 
 def find_first_descendant_by_tag(root: ET.Element, tag_without_namespace: str) -> Optional[ET.Element]:
@@ -429,7 +488,7 @@ def flatten_body_sections(body_element: ET.Element, *, enable_sibling_bucket_inh
     flattened_sections_in_traversal_order: List[Dict[str, Any]] = []
     walk_context = SectionWalkContext(last_mapped_bucket_by_depth={})
 
-    traversal_section_index = 0
+    traversal_section_index = 0  # stable ordering/indexing
 
     def walk_section(
             section_element: ET.Element,
@@ -449,14 +508,21 @@ def flatten_body_sections(body_element: ET.Element, *, enable_sibling_bucket_inh
         normalized_title = normalize_section_title(section_title)
         is_admin = bool(normalized_title) and is_admin_section_title(normalized_title)
 
-        explicitly_mapped_bucket = map_section_title_to_bucket(section_title)
-        effective_bucket = explicitly_mapped_bucket or parent_bucket
+        mapped_bucket, override_parent_bucket = map_section_title_to_bucket(section_title)
+
+        if parent_bucket is not None and mapped_bucket is not None and not override_parent_bucket:
+            effective_bucket = parent_bucket
+        else:
+            effective_bucket = mapped_bucket or parent_bucket
 
         if enable_sibling_bucket_inheritance and effective_bucket is None and not is_admin:
             effective_bucket = walk_context.last_mapped_bucket_by_depth.get(depth)
 
+        if effective_bucket is None:
+            effective_bucket = (section_title or "").strip() or "untitled"
+
         section_path = current_path + ([section_title] if section_title else [])
-        section_path_string = " > ".join([p for p in section_path if p])
+        section_path_string = " > ".join(clean_title_for_path(p) for p in section_path if p)
 
         section_blocks = extract_direct_text_blocks_from_section(section_element)
         section_text = "\n\n".join(section_blocks).strip()
@@ -473,8 +539,8 @@ def flatten_body_sections(body_element: ET.Element, *, enable_sibling_bucket_inh
         flattened_sections_in_traversal_order.append(section_record)
         traversal_section_index += 1
 
-        if explicitly_mapped_bucket in BUCKET_NAMES:
-            walk_context.last_mapped_bucket_by_depth[depth] = explicitly_mapped_bucket
+        if override_parent_bucket and mapped_bucket in BUCKET_NAMES:
+            walk_context.last_mapped_bucket_by_depth[depth] = mapped_bucket
 
         for child in list(section_element):
             if strip_xml_namespace(child.tag) == "sec":
@@ -484,7 +550,6 @@ def flatten_body_sections(body_element: ET.Element, *, enable_sibling_bucket_inh
         if strip_xml_namespace(child.tag) == "sec":
             walk_section(child, [], None, 0)
 
-    # Keep only meaningful records
     meaningful_sections = [s for s in flattened_sections_in_traversal_order if (s.get("title") or s.get("text"))]
 
     # remove exact duplicates (same path_string + same text)
@@ -678,3 +743,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    print("Parsed XML files!")
