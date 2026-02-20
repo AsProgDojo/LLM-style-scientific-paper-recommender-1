@@ -91,8 +91,6 @@ if __name__ == '__main__':
     ap.add_argument("--evidence", default=3, help="Enter the number of evidence chunks to return with their respective top-ranked papers")
     args = ap.parse_args()
 
-    print("For terminating the program type in \'SIGN OUT\'")
-    query = input("Enter query:")
     top_chunks = args.top_chunks
     top_papers = args.top_papers
     evidence = args.evidence
@@ -105,13 +103,16 @@ if __name__ == '__main__':
         'port': os.getenv("DB_PORT"),
     }
 
-    while query != 'SIGN OUT':
-        query_embedding = embed_query(query)
-        with psycopg.connect(**db_config, options="-c search_path=paper_chunks,public") as conn:
-            print("Connected to PostgreSQL database")
+    print("For terminating the program type in \'out\'")
+    query = input("Enter query:")
 
-            register_vector(conn)
-            with conn.cursor(row_factory=dict_row) as cur:
+    with psycopg.connect(**db_config, options="-c search_path=paper_chunks,public") as conn:
+        print("Connected to PostgreSQL database")
+        register_vector(conn)
+        with conn.cursor(row_factory=dict_row) as cur:
+            while query != 'out':
+                query_embedding = embed_query(query)
+
                 cur.execute(sql, (query_embedding, query_embedding, query_embedding, top_chunks, top_papers, evidence))
                 rows = cur.fetchall()
                 paper_id = rows[0]["paper_id"]
@@ -119,6 +120,6 @@ if __name__ == '__main__':
                 paper_score = rows[0]["paper_score"]
                 print(f"Best paper has id: {paper_id}, rank: {paper_rank}, score: {paper_score}")
 
-        query = input("Enter query:")
+                query = input("Enter query:")
 
     print("Terminating program...")
