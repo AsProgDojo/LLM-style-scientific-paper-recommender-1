@@ -1,3 +1,4 @@
+from psycopg import Cursor
 from sentence_transformers import SentenceTransformer
 from typing import List
 from transformers import AutoTokenizer
@@ -58,13 +59,38 @@ def get_chunks(section_text : str, header : str, window_wp : int = 348, overlap_
 
     return chunks
 
-def insert_data(paper_id : str, bucket : str, section_index : int, chunk_index : int, path_string : str, title : str, chunk_text : str, embedding : np.ndarray) -> None:
+def insert_data(connection, cursor : Cursor, rows : List) -> None:
     """
-    Insert text chunk into PostgreSQL database
+    Insert batch of text chunks into PostgreSQL database
     """
 
-    print(os.getenv('DB_PASSWORD'))
-    print(os.getenv('DB_HOST'))
+    SQL_UPSERT = """
+        INSERT INTO paper_chunks
+        (paper_id, bucket, section_index, chunk_index, path_string, title, chunk_text, embedding)
+        VALUES 
+            (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (paper_id, section_index, chunk_index)
+        DO UPDATE SET     bucket      = EXCLUDED.bucket,
+                          path_string = EXCLUDED.path_string,
+                          title       = EXCLUDED.title,
+                          chunk_text  = EXCLUDED.chunk_text,
+                          embedding   = EXCLUDED.embedding
+        """
+    with connection.pipeline(): # enables 'pipeline' mode,
+                                # providing significant performance boost by allowing client to send multiple database queries
+                                # rather than waiting for the result of each query before sending the next one
+        cursor.executemany(SQL_UPSERT, rows)
+
+    connection.commit()
+    print("Inserted {} rows".format(len(rows)))
+    rows.clear()
+
+
+def process_jsonl_file(object_file : str):
+    """
+    Process all the JSON objects inside object_file which represents JSONL
+    """
+
     db_config = {
         'dbname' : os.getenv("DB_NAME"),
         'user' : os.getenv("DB_USER"),
@@ -73,67 +99,56 @@ def insert_data(paper_id : str, bucket : str, section_index : int, chunk_index :
         'port' : os.getenv("DB_PORT"),
     }
 
+    MAX_ROWS = 500
+    rows = []
     try:
         with psycopg.connect(**db_config, options="-c search_path=paper_chunks,public") as conn:
-            print("Connected to PostgreSQL database")
-
-            register_vector(conn) # enables the use of the PostgreSQL vector data type within the Python database connection
+            register_vector(conn)  # enables the use of the PostgreSQL vector data type within the Python database connection
             with conn.cursor() as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO paper_chunks
-                        (paper_id, bucket, section_index, chunk_index, path_string, title, chunk_text, embedding)
-                    VALUES 
-                        (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (paper_id, section_index, chunk_index)
-                    DO UPDATE SET
-                            bucket      = EXCLUDED.bucket,
-                            path_string = EXCLUDED.path_string,
-                            title       = EXCLUDED.title,
-                            chunk_text  = EXCLUDED.chunk_text,
-                            embedding   = EXCLUDED.embedding
-                    """,
-                    (paper_id, bucket, section_index, chunk_index, path_string, title, chunk_text, embedding)
-                )
-        print("Inserted a row!")
+                with jsonlines.open(object_file) as reader:
+                    for json_object in reader:
+                        paper_id = json_object['paper_id']
+                        title = json_object['title']
+
+                        # Inserting data for abstract
+                        abstract = json_object["abstract"]
+                        bucket = 'abstract'
+                        section_index = -1
+                        text_chunks = get_chunks(abstract, json_object["title"])
+                        for i, text_chunk in enumerate(text_chunks):
+                            embedding = get_chunk_embedding(text_chunk)
+                            chunk_index = i
+                            rows.append(
+                                (paper_id, bucket, section_index, chunk_index, '', title, text_chunk, embedding)
+                            )
+
+                            if len(rows) >= MAX_ROWS:
+                                insert_data(conn, cursor, rows)
+                        # Inserting data for sections
+                        sections = json_object["sections"]
+                        for section in sections:
+                            section_index = section["section_index"]
+                            path_string = section["path_string"]
+                            title = section["title"]
+                            bucket = section["bucket"]
+                            section_text = section["text"]
+                            text_chunks = get_chunks(section_text, path_string)
+                            if paper_id == 'PMC11205001' and bucket == 'conclusion':
+                                print("EVOOOOO GAaaaaaaaaaaaaaaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA. Path_string:", path_string)
+                            for i, text_chunk in enumerate(text_chunks):
+                                embedding = get_chunk_embedding(text_chunk)
+                                chunk_index = i
+                                rows.append(
+                                    (paper_id, bucket, section_index, chunk_index, path_string, title, text_chunk, embedding)
+                                )
+
+                                if len(rows) >= MAX_ROWS:
+                                    insert_data(conn, cursor, rows)
+                    if rows:
+                        insert_data(conn, cursor, rows)
+
     except Exception as e:
-        print(f"Error connecting to the database: {e}")
-
-def process_jsonl_file(object_file : str):
-    """
-    Process all the JSON objects inside object_file which represents JSONL
-    """
-    with jsonlines.open(object_file) as reader:
-        for json_object in reader:
-            paper_id = json_object['paper_id']
-            title = json_object['title']
-
-            # Inserting data for abstract
-            abstract = json_object["abstract"]
-            bucket = 'abstract'
-            section_index = -1
-            text_chunks = get_chunks(abstract, json_object["title"])
-            for i, text_chunk in enumerate(text_chunks):
-                embedding = get_chunk_embedding(text_chunk)
-                chunk_index = i
-                insert_data(paper_id, bucket, section_index, chunk_index, '', title, text_chunk, embedding)
-                print("Paper ID:", paper_id, "Section Index: ", section_index,"-- Chunk index", chunk_index)
-
-            # Inserting data for sections
-            sections = json_object["sections"]
-            for section in sections:
-                section_index = section["section_index"]
-                path_string = section["path_string"]
-                title = section["title"]
-                bucket = section["bucket"]
-                section_text = section["text"]
-                text_chunks = get_chunks(section_text, path_string)
-                for i, chunk_text in enumerate(text_chunks):
-                    embedding = get_chunk_embedding(chunk_text)
-                    chunk_index = i
-                    insert_data(paper_id, bucket, section_index, chunk_index, path_string, title, chunk_text, embedding)
-                    print("Paper ID:", paper_id, "Section Index: ", section_index, "-- Chunk index", chunk_index)
-
+        print(f"Error regarding database: {e}")
 
 if __name__ == '__main__':
     load_dotenv(find_dotenv())
