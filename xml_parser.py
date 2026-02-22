@@ -668,8 +668,6 @@ def parse_pmc_jats_xml_to_record(
     bucket_section_index_lists = build_bucket_to_section_index_list(section_records)
 
     return {
-        "schema_version": "1.0",
-        "source": "pmc_jats",
         "paper_id": stable_paper_id,
         "ids": identifiers,
         "title": article_title,
@@ -694,8 +692,8 @@ def collect_xml_files(input_path: Path) -> List[Path]:
 
 def main() -> None:
     argument_parser = argparse.ArgumentParser()
-    argument_parser.add_argument("input", help="XML file or directory containing XMLs")
-    argument_parser.add_argument("--out", required=True, help="Output path (.json for single file, .jsonl for many)")
+    argument_parser.add_argument("--input", required=True, help="XML file or directory containing XMLs")
+    argument_parser.add_argument("--out_dir", required=True, help="Output path to .json for single or .jsonl for many papers")
     argument_parser.add_argument(
         "--no-sibling-inherit",
         action="store_true",
@@ -704,25 +702,20 @@ def main() -> None:
     args = argument_parser.parse_args()
 
     input_path = Path(args.input)
-    output_path = Path(args.out)
+    output_path = Path(args.out_dir)
     sibling_inherit_enabled = not args.no_sibling_inherit
 
     xml_files = collect_xml_files(input_path)
     if not xml_files:
         raise SystemExit(f"No .xml files found under: {input_path}")
-    if len(xml_files) > 1 and output_path.suffix.lower() == ".json":
-        raise SystemExit("For multiple XML files, use --out with a .jsonl filename (e.g., corpus.jsonl).")
 
-    if len(xml_files) == 1 and output_path.suffix.lower() == ".json":
+    if len(xml_files) == 1:
+        output_path = output_path / 'corpus.json'
         paper_record = parse_pmc_jats_xml_to_record(str(xml_files[0]), enable_sibling_bucket_inheritance=sibling_inherit_enabled)
         output_path.write_text(json.dumps(paper_record, ensure_ascii=False, indent=2), encoding="utf-8")
         return
 
-    if output_path.exists() and output_path.is_dir():
-        raise SystemExit(f"--out must be a file (e.g., papers.jsonl), not a directory: {output_path}")
-    if output_path.suffix.lower() not in (".json", ".jsonl"):
-        raise SystemExit(f"--out must end with .json or .jsonl. Got: {output_path}")
-
+    output_path = output_path / 'corpus.jsonl'
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with output_path.open("w", encoding="utf-8") as output_file:
@@ -732,8 +725,6 @@ def main() -> None:
                 output_file.write(json.dumps(paper_record, ensure_ascii=False) + "\n")
             except Exception as exc:
                 error_record = {
-                    "schema_version": "1.0",
-                    "source": "pmc_jats",
                     "paper_id": xml_file.stem,
                     "error": str(exc),
                     "file": str(xml_file),
