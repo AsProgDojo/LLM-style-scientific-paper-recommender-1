@@ -12,9 +12,7 @@ Downloads files with retries and verifies the final count
 import argparse
 import csv
 import random
-import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List, Tuple
@@ -40,8 +38,8 @@ def read_filelist_csv(path : Path) -> List[FileRow]:
         if not reader.fieldnames:
             raise ValueError('CSV has no header/fieldnames')
 
-        fieldnames = {name.lower() : name for name in reader.fieldnames}
-        required = ['key', 'accessionid', 'license']
+        fieldnames = {name : name for name in reader.fieldnames}
+        required = ['Key', 'AccessionID', 'License']
         missing = [r for r in required if r not in fieldnames]
 
         if missing:
@@ -49,9 +47,9 @@ def read_filelist_csv(path : Path) -> List[FileRow]:
                 f'CSV missing one or more of required fields (Key, AccessionID, License). Found: {reader.fieldnames}'
             )
 
-        key_col = fieldnames['key']
-        accession_id_col = fieldnames['accessionid']
-        license_col = fieldnames['license']
+        key_col = fieldnames['Key']
+        accession_id_col = fieldnames['AccessionID']
+        license_col = fieldnames['License']
 
         for row in reader:
             key = row.get(key_col, "").strip()
@@ -101,10 +99,12 @@ def local_path_for_key(out_dir : Path, key : str) -> Path:
 def write_reproducible_output(out_path : Path, rows : List[FileRow]) -> None:
     """Make file that holds the same rows as the sample data. Used for reproducibility"""
     with out_path.open('w', encoding='utf-8', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerows(['key', 'accession_id', 'license'])
+        fieldnames = ['Key', 'AccessionID', 'License']
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
         for r in rows:
-            writer.writerow([r.key, r.accession_id, r.license])
+            r = {'Key' : r.key, 'AccessionID' : r.accession_id, 'License' : r.license}
+            writer.writerow(r)
 
 def make_reproducible_output_path(out_dir : Path) -> Path:
     """Make path where the reproducible output is stored."""
@@ -121,24 +121,26 @@ def main() -> int:
     ap.add_argument('--out_dir', required=True, type=Path, help="Path to output directory")
     ap.add_argument('--n', type=int, default=10, help="Number of papers to download")
     ap.add_argument('--seed', type=int, default = 42, help="Random seed")
+    ap.add_argument("--existing", type=bool, default=False, help="Choose to download from different .csv file with necessary columns")
     args = ap.parse_args()
 
-    if shutil.which('aws') is None:
-        print("Error: AWS CLI is not installed. Install the AWS CLI first", file = sys.stderr)
-
     ensure_dir_exists(args.out_dir)
+    existing = args.existing
 
     print(f'Reading filelist: {args.filelist}...')
     rows = read_filelist_csv(args.filelist)
     print(f'Total number of rows: {len(rows)}')
 
-    print(f'Sampling N: {args.n}, with seed={args.seed}...')
-    sample = get_random_sample(rows, args.n, args.seed)
+    if not existing:
+        print(f'Sampling N: {args.n}, with seed={args.seed}...')
+        sample = get_random_sample(rows, args.n, args.seed)
 
-    print('Saving the sample data...')
-    reproducible_output_path = make_reproducible_output_path(args.out_dir)
-    write_reproducible_output(reproducible_output_path, sample)
-    print(f'Sample data saved to {reproducible_output_path}')
+        print('Saving the sample data...')
+        reproducible_output_path = make_reproducible_output_path(args.out_dir)
+        write_reproducible_output(reproducible_output_path, sample)
+        print(f'Sample data saved to {reproducible_output_path}')
+    if existing:
+        sample = rows
 
     print('Start downloading...')
     failures : List[Tuple[str, str]] = []
