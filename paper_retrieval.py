@@ -13,8 +13,6 @@ import re
 
 
 
-API_URL = "https://mlvoca.com/api/generate"
-API_MODEL_NAME = "deepseek-r1:1.5b"
 MODEL_NAME = 'pritamdeka/S-PubMedBert-MS-MARCO'
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = SentenceTransformer(MODEL_NAME)
@@ -42,7 +40,6 @@ paper_ids AS (
   SELECT DISTINCT paper_id FROM candidates
 ),
 paper_meta AS (
-  -- pick one title per paper (prefers abstract/earlier chunks)
   SELECT DISTINCT ON (pc.paper_id)
     pc.paper_id,
     pc.title AS paper_title
@@ -158,7 +155,7 @@ def ask_llm(client, query : str, papers : List[Any]) -> str:
     """
     prompt,rules = build_prompt_and_rules(query, papers)
     response = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
+        model="gemini-2.5-flash",
         contents=prompt,
         config=types.GenerateContentConfig(
             system_instruction=rules,
@@ -186,7 +183,7 @@ if __name__ == '__main__':
     evidence = args.evidence
 
     db_config = {
-            'dbname': os.getenv("DB_NAME"),
+        'dbname': os.getenv("DB_NAME"),
         'user': os.getenv("DB_USER"),
         'password': os.getenv("DB_PASSWORD"),
         'host': os.getenv("DB_HOST"),
