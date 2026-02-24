@@ -6,3 +6,4 @@ python-dotenv~=1.2.1
 pgvector~=0.4.2
 psycopg~=3.3.2
 psycopg-binary~=3.3.2
+google-genai~=1.64.0
