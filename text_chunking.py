@@ -114,7 +114,7 @@ def process_jsonl_file(object_file : str):
                         abstract = json_object["abstract"]
                         bucket = 'abstract'
                         section_index = -1
-                        text_chunks = get_chunks(abstract, json_object["title"])
+                        text_chunks = get_chunks(abstract, title)
                         for i, text_chunk in enumerate(text_chunks):
                             embedding = get_chunk_embedding(text_chunk)
                             chunk_index = i
@@ -129,12 +129,9 @@ def process_jsonl_file(object_file : str):
                         for section in sections:
                             section_index = section["section_index"]
                             path_string = section["path_string"]
-                            title = section["title"]
                             bucket = section["bucket"]
                             section_text = section["text"]
                             text_chunks = get_chunks(section_text, path_string)
-                            if paper_id == 'PMC11205001' and bucket == 'conclusion':
-                                print("EVOOOOO GAaaaaaaaaaaaaaaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA. Path_string:", path_string)
                             for i, text_chunk in enumerate(text_chunks):
                                 embedding = get_chunk_embedding(text_chunk)
                                 chunk_index = i
@@ -152,4 +149,4 @@ def process_jsonl_file(object_file : str):
 
 if __name__ == '__main__':
     load_dotenv(find_dotenv())
-    process_jsonl_file('./output/oa_comm/txt/all/corpus.jsonl')
+    process_jsonl_file('./output/corpus.jsonl')
