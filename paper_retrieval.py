@@ -102,7 +102,7 @@ def embed_query(query : str):
     query_embedding = model.encode(query, convert_to_tensor=False)
     return query_embedding
 
-def build_prompt_and_rules(query : str, papers : List[Any]) -> tuple[str, str]:
+def build_prompt_and_rules(query : str, papers_by_vector : List[Any], papers_by_bm25: List[Any]) -> tuple[str, str]:
     """
     Build user prompt that will be sent to Large Language Model
     """
@@ -128,13 +128,24 @@ Rules:
 
     i = 1
     context_block = ''
-    for paper in papers:
+    for paper in papers_by_vector:
         paper_id = paper["paper_id"]
         evidence_chunks = paper["evidence"]
         title = paper["paper_title"]
         for chunk in evidence_chunks:
             path_string = chunk["path_string"]
             chunk_text = chunk["text"]
+            context_block += (
+                f"[S:{i}] Paper: {paper_id} - {title} - {path_string}\n"
+                f"{chunk_text}\n\n"
+            )
+            i += 1
+
+    for paper in papers_by_bm25:
+        paper_id = paper["paper_id"]
+        evidence_chunks = paper["evidence"]
+        title = paper["paper_title"]
+        for chunk_text in evidence_chunks:
             context_block += (
                 f"[S:{i}] Paper: {paper_id} - {title} - {path_string}\n"
                 f"{chunk_text}\n\n"
@@ -152,11 +163,12 @@ QUESTION:
 
     return prompt,rules
 
-def ask_llm(client, query : str, papers : List[Any]) -> str:
+def ask_llm(client, query : str, papers_by_vector : List[Any], papers_by_bm25 : List[Any]) -> str:
     """
     Generates the answer to the user query by using Google Gemini API. All the answers are grounded in the retrieved data stored in 'papers' variable
     """
-    prompt,rules = build_prompt_and_rules(query, papers)
+    prompt,rules = build_prompt_and_rules(query, papers_by_vector, papers_by_bm25)
+
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt,
