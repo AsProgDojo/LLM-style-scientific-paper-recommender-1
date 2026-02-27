@@ -20,8 +20,7 @@ import numpy as np
 MODEL_NAME = 'pritamdeka/S-PubMedBert-MS-MARCO'
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = SentenceTransformer(MODEL_NAME)
-
-
+stop_words = set(stopwords.words('english'))  
 
 sql = """
 WITH candidates AS (
@@ -172,6 +171,56 @@ def ask_llm(client, query : str, papers : List[Any]) -> str:
 def remove_citations(raw_answer : str) -> str:
     return re.sub(r"⟦S:\d+⟧", "", raw_answer)
 
+def get_paper_corpus(cur):
+    cur.execute("SELECT paper_id, title, chunk_text from paper_chunks")
+    return cur.fetchall()
+
+def tokenize_text(text: str) -> List[str]:
+    tokens = word_tokenize(text.lower())
+    return [t for t in tokens if t.isalpha() and t not in stop_words]
+
+def extract_text(corpus: List[dict]) -> List[str]:
+    return [chunk["chunk_text"] for chunk in corpus]
+
+def fetch_top_papers(cur, query: str, top_papers: int, top_chunks) -> List:
+    """
+    Fetches text chunks from the database and selects top n (top_papers) by bm25 score
+    """
+    corpus = get_paper_corpus(cur)
+    chunk_list = extract_text(corpus)
+    tokenized_corpus = [tokenize_text(chunk) for chunk in chunk_list]
+    tokenized_query = tokenize_text(query)
+    
+    bm25 = BM25Okapi(tokenized_corpus)
+    scores = bm25.get_scores(tokenized_query)
+
+    ranked_indices = np.argsort(scores)[::-1]
+    papers_dict = {}
+
+    for idx in ranked_indices:
+        row = corpus[idx]
+        paper_id = row["paper_id"]
+        score = scores[idx]
+        text = row["chunk_text"]
+
+        if score == 0:
+            break
+
+        if paper_id not in papers_dict:
+            papers_dict[paper_id] = {
+                "paper_id": paper_id,
+                "paper_title": row["title"],
+                "paper_score": float(score),
+                "evidence": []
+            }
+        
+        if len(papers_dict[paper_id]["evidence"]) < top_chunks:
+            papers_dict[paper_id]["evidence"].append(text)
+
+    sorted_papers = sorted(papers_dict.values(), key=lambda p: p["paper_score"], reverse=True)
+    return sorted_papers[:top_papers]
+
+
 if __name__ == '__main__':
 
     load_dotenv(find_dotenv())
@@ -209,8 +258,9 @@ if __name__ == '__main__':
             while query != 'out':
                 query_embedding = embed_query(query)
                 cur.execute(sql, (query_embedding, query_embedding, query_embedding, top_chunks, top_papers, evidence))
-                papers = cur.fetchall()
-                raw_answer = ask_llm(client, query, papers)
+                papers_by_vector = cur.fetchall()
+                papers_by_bm25 = fetch_top_papers(cur, query, top_papers, top_chunks)
+                raw_answer = ask_llm(client, query, papers_by_vector, papers_by_bm25)
                 clean_answer = remove_citations(raw_answer)
                 print("\n\n", clean_answer)
                 query = input("Enter query:")
