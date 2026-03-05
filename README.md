@@ -44,11 +44,11 @@ Create a `.env` file with:
 ### Database setup (PostgreSQL + `pgvector`)
 Enter the values for fields `POSTGRES_USER` and `POSTGRES_PASSWORD` in file `docker-compose.yaml`
 
-Set up the PostgreSQL server
+Set up the PostgreSQL server:
 ```bash
 docker-compose up -d
 ```
-Run the `ddl.sql` script from database client to create the schema, `pgvector` extension, table and `HNSW` index
+Run the `ddl.sql` script from database client to create the schema, `pgvector` extension, table and `HNSW` index.
 
 #### Chunks table schema
 | Column         | Type           | Notes                                                                           |
@@ -66,7 +66,7 @@ Run the `ddl.sql` script from database client to create the schema, `pgvector` e
 <br>
 
 ## End-to-end program flow
-This section describes the exact pipeline stages and how they connect
+This section describes the exact pipeline stages and how they connect:
 
 ### 1) Download all of the papers' metadata (`download_paper_metadata.py`)
 Run this script in your shell to download all scientific paper metadata from the AWS S3 bucket. This metadata is required for the next step because it tells you where each paper is stored in S3, so you can download the actual papers afterward.
@@ -76,7 +76,7 @@ python download_paper_metadata.py --filelist [path_to_file_list]
 <br>
 
 ### 2) Reproducible sampling + download of the papers (`download_papers.py`)
-Reads `oa_comm.filelist.csv`, samples N papers deterministically (seeded), writes `reproducible_output.csv`, and downloads XML files  
+Reads `oa_comm.filelist.csv`, samples N papers deterministically (seeded), writes `reproducible_output.csv`, and downloads XML files.  
 Example: sample and download 10,000 papers:
 ```bash
 python download_papers.py --filelist ./oa_comm.filelist.csv --out_dir ./data --n 10000 --seed 42
@@ -99,7 +99,7 @@ python xml_parser.py --input ./data/oa_comm/xml/all --out_dir ./output
 <br>
 
 ### 4) Chunking + embedding + ingestion (`text_chunking.py`)
-Reads `output/corpus.jsonl`, chunks text using the BERT tokenizer (350 WordPieces window, 70 WordPieces overlap), generates embeddings using SentenceTransformer (pritamdeka/S-PubMedBert-MS-MARCO), and upserts rows into database table in batches (e.g. `MAX_ROWS = 500`)  
+Reads `output/corpus.jsonl`, chunks text using the BERT tokenizer (350 WordPieces window, 70 WordPieces overlap), generates embeddings using SentenceTransformer (pritamdeka/S-PubMedBert-MS-MARCO), and upserts rows into database table in batches (e.g. `MAX_ROWS = 500`).  
 Example:
 ```bash
 python text_chunking.py
