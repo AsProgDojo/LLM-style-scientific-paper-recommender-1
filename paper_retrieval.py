@@ -16,9 +16,9 @@ import re
 import nltk
 import numpy as np
 
-nltk.download('punkt')
-nltk.download('punkt_tab')
-nltk.download('stopwords')
+nltk.download('punkt', download_dir='./nltk_data')
+nltk.download('punkt_tab', download_dir='./nltk_data')
+nltk.download('stopwords', download_dir='./nltk_data')
 
 MODEL_NAME = 'pritamdeka/S-PubMedBert-MS-MARCO'
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
