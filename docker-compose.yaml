@@ -1,0 +1,9 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER:
+      POSTGRES_PASSWORD:
+      POSTGRES_DB: pmc_oa_scientific_papers_text_chunks
+    ports:
+      - "5432:5432"
