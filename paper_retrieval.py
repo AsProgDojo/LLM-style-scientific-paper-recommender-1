@@ -9,13 +9,16 @@ from google.genai import types
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from rank_bm25 import BM25Okapi
-from dataclasses import dataclass
 import psycopg
 import argparse
 import os
 import re
 import nltk
 import numpy as np
+
+nltk.download('punkt')
+nltk.download('punkt_tab')
+nltk.download('stopwords')
 
 MODEL_NAME = 'pritamdeka/S-PubMedBert-MS-MARCO'
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -236,10 +239,6 @@ def fetch_top_papers(cur, query: str, top_papers: int, top_chunks) -> List:
 if __name__ == '__main__':
 
     load_dotenv(find_dotenv())
-
-    nltk.download('punkt')
-    nltk.download('punkt_tab')
-    nltk.download('stopwords')
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--top-chunks", default=3, help="Enter the number of top chunks to sum by and use that score for ranking")
