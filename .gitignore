@@ -1,6 +1,7 @@
 /pmc_metadata/oa_comm.filelist.csv
 /output/*
 /.env
+/nltk_data/*
 
 data/*
 out/*
