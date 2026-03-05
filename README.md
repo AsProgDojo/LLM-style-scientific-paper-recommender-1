@@ -22,6 +22,8 @@ dense vector similarity and generates grounded answers using Google Gemini.
 | `text_chunking.py`           | Chunk (WordPiece windows), embed, and upsert chunk records into PostgreSQL + `pgvector`. |
 | `paper_retrieval.py`         | Vector retrieval + paper ranking + Gemini RAG answer generation (interactive CLI).       |
 | `requirements.txt`           | Python dependencies for the pipeline.                                                    |
+| `docker-compose.yaml`        | PostgreSQL server properties                                                             |
+| `ddl.sql`                    | Script for setting up the database                                                       |
 
 ## Setup
 Steps to set up the environment.
@@ -32,18 +34,21 @@ pip install -r requirements.txt
 ```
 ### Configure environment variables
 Create a `.env` file with:
-- DB_HOST=
-- DB_PORT=
-- DB_NAME=
-- DB_USER=
-- DB_PASSWORD=
-- GEMINI_API_KEY=
+- `DB_HOST=`
+- `DB_PORT=`
+- `DB_NAME=`
+- `DB_USER=`
+- `DB_PASSWORD=`
+- `GEMINI_API_KEY=`
 
 ### Database setup (PostgreSQL + `pgvector`)
-Run the provided SQL script to create the schema, `pgvector` extension, table and `HNSW` index
+Enter the values for fields `POSTGRES_USER` and `POSTGRES_PASSWORD` in file `docker-compose.yaml`
+
+Set up the PostgreSQL server
 ```bash
-psql -d <DB_NAME> -U <DB_USER> -f paper_chunks_sql_script.sql
+docker-compose up -d
 ```
+Run the `ddl.sql` script from database client to create the schema, `pgvector` extension, table and `HNSW` index
 
 #### Chunks table schema
 | Column         | Type           | Notes                                                                           |
