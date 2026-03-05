@@ -1,11 +1,8 @@
-./pmc_metadata/oa_comm.filelist.csv
-./output/reproducible_output.csv
-./.env
-./output/oa_comm/txt/all/corpus.jsonl
+/pmc_metadata/oa_comm.filelist.csv
+/output/*
+/.env
 
 data/*
 out/*
 metadata/*
-output/*
 docker-compose.yaml
-.env
